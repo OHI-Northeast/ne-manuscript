@@ -21,16 +21,16 @@ quant_people <- people %>%
   summarize(n()) %>% 
   filter(!is.na(`Short Name`)) %>% 
   rename(num_ppl = "n()") %>% 
-  ungroup() %>% 
-  mutate(merging = seq(1:47)) # I am doing this because for some reason the cbind im trying to do later with quant_data and packing creates a list even though it really shouldnt
+  ungroup() 
+ # mutate(merging = seq(1:50)) # I am doing this because for some reason the cbind im trying to do later with quant_data and packing creates a list even though it really shouldnt
 
 # Generate the layout
 packing <- circleProgressiveLayout(quant_people$num_ppl, sizetype='area')
 packing$radius <- 0.95*packing$radius
-packing <- mutate(packing, merging = seq(1:47)) # because cbinding is not working...
-#data <- cbind(quant_people, packing)
-data <- left_join(quant_people, packing, by = c("merging")) %>% 
-  select(!merging)
+#packing <- mutate(packing, merging = seq(1:50)) # because cbinding is not working...
+data <- cbind(quant_people, packing)
+#people <- left_join(quant_people, packing, by = c("merging")) 
+ # select(!merging)
 dat.gg <- circleLayoutVertices(packing, npoints=50)
 
 # Plot 

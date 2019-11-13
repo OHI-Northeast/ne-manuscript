@@ -58,20 +58,72 @@ data <- data.frame(
 data_json <- d3_nest(data)
 Flare <- jsonlite::fromJSON(data_json, simplifyDataFrame = FALSE)
 
-### create diagram
-radialNetwork(List = Flare, 
+# Some jerry rigging to replace "root" with "OHI NE"
+children <- Flare[1]
+ohine <- Flare[2] %>% 
+  as.data.frame() %>% 
+  mutate(name = ifelse(name == "root", " ", name )) %>% 
+  as.list()
+Flare_ohine <- c(children, ohine)
+
+### we are using the same colors as the dashboard to identify the goals
+red <- c("#DD4B39")
+purple <- c("#605CA8")
+blue <- c("#0073B7")
+aqua <- c("#00C0EF")
+yellow <- c("#F39C12")
+orange <- c("#FF851B")
+navy <- c("#001F3F")
+green <- c("#00A65A")
+olive <- c("#3D9970")
+fuscia <- c("#F012BE")
+maroon <- c("#D81B60")
+teal <- c("#39CCCC")
+light_blue <- c("#3C8DBC")
+lime <- c("#00FF00")
+
+### assigning the colors to the goals
+HS = maroon ## habitat services
+RAO = fuscia ## resource access opportunities
+#MAR = purple ## food provision: aquaculture/mariculture
+FP = blue ## was FIS food provision: fishing
+#SPP  = light_blue ## biodiversity: species
+BD = aqua ## was HAB biodiversity: habitat
+CW = teal ## clean waters
+SOP = olive ## was LSPsense of place: lasting special places
+#ICO = green ## sense of place: iconic species,
+#SPFIS = lime ## sense of place: fishing engagement
+#ECO = yellow ## livelihood/economies: economies,
+LE = orange ## was LIV liveihood/economies: livelihoods
+TR = red ## tourism and recreation
+PRS = purple
+RES = green
+
+
+### the radialNetwork function does not support choosing colors directly for the groups. So we have to create a vector of colors in the proper order and then convert that to a JavaScript array
+colorVector <- c("BD", "CW", "FP", "HS", "LE", "PRS", "RES", "RAO", "SOP", "TR", 
+                 rep("BD", bd), rep("CW", cw), rep("FP", fp), rep("HS", hs),
+                 rep("LE", le), rep("PRS", prs), rep("RES", res), rep("RAO", rao),
+                 rep("SOP", sop), rep("TR", tr))
+
+jsarray <- paste0('["', paste(colorVector, collapse = '", "'), '"]')
+nodeStrokeJS <- JS(paste0('function(d, i) { return ', jsarray, '[i]; }'))
+
+### create the diagram
+radialNetwork(List = Flare_ohine, 
               fontSize = 10, 
               opacity = 0.9,
-              nodeStroke = "transparant")
-
+              nodeStroke = "transparant",
+              linkColour = nodeStrokeJS)
+              
 #figure out how to save it as png ie better quality and keep the transparent nodes
-# figure out how to get rid on node word in the middle
-# figure out how to color coordiante the "goals
 # make the goals font larger
 
 # Main code
 #save the manual way: viewer -> export -> save as web html
 #install_phantomjs()
 webshot::webshot("dendogram.html", file="figs/quant_sources.jpeg", zoom = 4)
+
+#maybe do saveNetwork? but that'd be an html I think
 
 
