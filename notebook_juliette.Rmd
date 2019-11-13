@@ -1,0 +1,35 @@
+---
+title: "notebook"
+author: "Juliette Verstaen"
+date: "11/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(packcircles)
+library(ggplot2)
+library(fishualize)
+library(googledrive)
+library(googlesheets4)
+library(httr)
+```
+
+
+```{r}
+sheets_auth(
+  email = gargle::gargle_oauth_email(),
+  path = NULL,
+  scopes = "https://www.googleapis.com/auth/spreadsheets",
+  cache = gargle::gargle_oauth_cache(),
+  use_oob = gargle::gargle_oob_default(),
+  token = NULL
+)
+
+quant <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/18xVyNCLBMPL9Z0uonMpJM5GxCn5fVP9pvFZPjp6YADU/edit#gid=1292190059") 
+```
+
+
+
+
+
+
