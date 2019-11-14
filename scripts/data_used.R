@@ -42,16 +42,16 @@ sources_ordered <- quant %>%
 ### save the sources as a list that can be added as a third level for the dendogram. They need to be in alphabetical order to match up with the sources 
 data <- data.frame(
   # level1="OHI",
-  level2= c(rep("biodiversity", bd),
-            rep("clean waters", cw),
-            rep("food provision", fp),
-            rep("habitat services", hs),
-            rep("livelihoods and economies", le),
-            rep("pressure", prs), 
-            rep("resilience", res),
-            rep("resource access opportunity", rao),
-            rep("sense of place", sop),
-            rep("tourism and recreation", tr)),
+  level2= c(rep("BD", bd), #biodiversity
+            rep("CW", cw), #clean waters
+            rep("FP", fp), #food provision
+            rep("HS", hs), #habitat services
+            rep("LE", le), # livelihoods and economie
+            rep("PRS", prs), #pressures
+            rep("RES", res), #resilience
+            rep("RAO", rao), #resource access opportunity
+            rep("SOP", sop), #sense of place
+            rep("TR", tr)), #tourism and recreation
   level3 = sources_ordered$data_source) # do level three with "Goal" instead of "Agencies and Orgs" as a check. they should all match up
 
 ### Transform data into .json file
@@ -101,29 +101,25 @@ RES = green
 
 
 ### the radialNetwork function does not support choosing colors directly for the groups. So we have to create a vector of colors in the proper order and then convert that to a JavaScript array
-colorVector <- c("BD", "CW", "FP", "HS", "LE", "PRS", "RES", "RAO", "SOP", "TR", 
-                 rep("BD", bd), rep("CW", cw), rep("FP", fp), rep("HS", hs),
-                 rep("LE", le), rep("PRS", prs), rep("RES", res), rep("RAO", rao),
-                 rep("SOP", sop), rep("TR", tr))
+colorVector <- c(BD, CW, FP, HS, LE, PRS, RES, RAO, SOP, TR, 
+                 rep(BD, bd), rep(CW, cw), rep(FP, fp), rep(HS, hs),
+                 rep(LE, le), rep(PRS, prs), rep(RES, res), rep(RAO, rao),
+                 rep(SOP, sop), rep(TR, tr))
 
 jsarray <- paste0('["', paste(colorVector, collapse = '", "'), '"]')
 nodeStrokeJS <- JS(paste0('function(d, i) { return ', jsarray, '[i]; }'))
 
 ### create the diagram
 radialNetwork(List = Flare_ohine, 
-              fontSize = 10, 
+              fontSize = 25, 
               opacity = 0.9,
-              nodeStroke = "transparant",
+              nodeStroke = "white",
               linkColour = nodeStrokeJS)
               
-#figure out how to save it as png ie better quality and keep the transparent nodes
-# make the goals font larger
-
 # Main code
 #save the manual way: viewer -> export -> save as web html
 #install_phantomjs()
 webshot::webshot("dendogram.html", file="figs/quant_sources.jpeg", zoom = 4)
 
-#maybe do saveNetwork? but that'd be an html I think
-
-
+# Future Updates:
+# make the goals font larger
