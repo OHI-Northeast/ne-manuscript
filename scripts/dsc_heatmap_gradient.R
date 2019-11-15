@@ -41,13 +41,16 @@ dsc_layers <- dsc_scores_raw %>%
 ### Heatmap!
 dsc_all_layers <- ggplot(data = dsc_layers, aes(x = criteria, y = Layer)) +
   geom_tile(aes(fill = score)) +
-  scale_fill_gradient2(midpoint = 2, low = "red", mid = "orange", high = "darkgreen", na.value = "grey80")+
+  scale_fill_gradient2(midpoint = 2, 
+                       low = "darkred", mid = "orange", high = "darkgreen", na.value = "grey80",
+                       breaks = c(1,2,3), 
+                       labels = c("Bad","Medium", "Good")) +
   theme_dark()+
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.title = element_blank(),
         panel.grid = element_blank(),
         legend.title = element_blank(),
-        legend.position = "none") +
+        legend.position = "bottom") +
   coord_cartesian(expand=FALSE) 
 
 ## when saving make sure to save it tall enough so that there's no over lap for the yaxis labels
