@@ -57,7 +57,8 @@ quant_ppl <- ggplot() +
             color="black") +
   theme_void() + 
  # theme(legend.position="none")+ 
-  scale_fill_fish_d(option = "Thalassoma_bifasciatum" ) +
+  #scale_fill_fish_d(option = "Lepomis_megalotis" ) +
+  scale_fill_brewer(palette ="Set2")+
   guides(size=FALSE)+
   coord_equal()
 
