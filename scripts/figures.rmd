@@ -100,7 +100,7 @@ ggplot() +
         axis.ticks = element_blank(),
         axis.title = element_blank()) 
 
-ggsave(filename = "figures/region_map.png")
+ggsave(filename = "../figs/region_map.png")
 
 ```
 
@@ -151,7 +151,7 @@ ggplot(scores, aes(x = year, y = score, color = rgn_name)) +
         axis.text.x = element_text(size = 9),
         strip.text = element_text(size = 10))
 
-ggsave(filename = "figures/goal_scores_panel_plot.png")
+ggsave(filename = "../figs/goal_scores_panel_plot.png")
 ```
 
 ```{r, fig.height = 7}
@@ -171,6 +171,6 @@ ggplot(scores, aes(x = year, y = score, group = rgn_name, color = rgn_dropped)) 
         axis.text.x = element_text(size = 9),
         strip.text = element_text(size = 10))
 
-ggsave(filename = "figures/goal_scores_panel_plot_highlight.png")
+ggsave(filename = "../figs/goal_scores_panel_plot_highlight.png")
 ```
 
