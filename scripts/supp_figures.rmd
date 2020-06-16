@@ -1,0 +1,202 @@
+---
+title: "Creating figures for paper"
+author: "Jamie Montgomery"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(tidyverse)
+library(sf)
+library(ggrepel)
+library(paletteer)
+library(gghighlight)
+library(RColorBrewer)
+library(broom)
+library(patchwork)
+library(kableExtra)
+library(stargazer)
+
+# set the mazu data_edit share based on operating system
+dir_M             <- c('Windows' = '//mazu.nceas.ucsb.edu/ohi',
+                       'Darwin'  = '/Volumes/ohi',    ### connect (cmd-K) to smb://mazu/ohi
+                       'Linux'   = '/home/shares/ohi')[[ Sys.info()[['sysname']] ]]
+dir_prep <- '~/github/ne-prep'
+# shapefiles
+# state land boundaries
+ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'states', quiet = T)
+rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'ne_ohi_rgns', quiet = T) #need to use path.expand because readOGR does not read '~'
+rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp', quiet = T) #need to use path.expand because readOGR does not read '~'
+
+ne_rgn <- sf::read_sf(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'northeast_rgn', quiet = T) #whole region
+rgn_data   <- data.frame(rgns) %>% 
+  select(-geometry) %>% 
+  mutate(area_km2 = as.numeric(levels(area_km2))[area_km2],
+         rgn_name = as.character(rgn_name),
+         state = ifelse(str_detect(rgn_name, "Massachusetts"), "Massachusetts", rgn_name))
+
+scores <- read_csv("~/github/ne-scores/region/scores.csv") %>%
+  left_join(rgn_data, by = c("region_id" = "rgn_id")) %>%
+  select(-area_km2, -state, -state_abv, -state_name) %>%
+  mutate(goal_name = case_when(
+    goal == "BD" ~ "Biodiversity",
+    goal == "CW" ~ "Clean Waters",
+    goal == "ECO" ~ "LE: Economies",
+    goal == "FIS" ~ "FP: Wild-Caught Fisheries",
+    goal == "HAB" ~ "BD: Habitats",
+    goal == "HS" ~ "Habitat Services",
+    goal == "CP" ~ "HS: Coastal Protection",
+    goal == "CS" ~ "HS: Carbon Storage",
+    goal == "ICO" ~ "SOP: Iconic Species",
+    goal == "Index" ~ "Ocean Health Index",
+    goal == "LE" ~ "Livelihoods & Economies",
+    goal == "LIV" ~ "LE: Livelihoods",
+    goal == "LSP" ~ "SOP: Lasting Special Places",
+    goal == "MAR" ~ "FP: Aquaculture",
+    goal == "RAO" ~ "Resource Access Opportunities",
+    goal == "SP" ~ "Sense Of Place",
+    goal == "SPFIS" ~ "SOP: Fishing Engagement",
+    goal == "TR" ~ "Tourism & Recreation",
+    goal == "SPP" ~ "BD: Species",
+    goal == "FP" ~ "Food Provision"
+  ),
+  rgn_name = ifelse(region_id == 0, "Northeast", rgn_name),
+  year = as.numeric(year))
+```
+
+# Scores over time
+
+## By goal and region with multicolor rgns
+
+```{r fig.height = 6, fig.width = 8}
+goal_scores <- scores %>%
+  filter(dimension == "score")  %>%
+  mutate(weight = ifelse(region_id == 0, 1, 0),
+  rgn_dropped = ifelse(region_id == 0, "Northeast", "All other regions"))
+
+goal_scores$goal_name_f = factor(goal_scores$goal_name, levels=c("Ocean Health Index", "Biodiversity", "Clean Waters", "Food Provision", "Habitat Services", "Livelihoods & Economies", "Resource Access Opportunities", "Sense Of Place", "Tourism & Recreation"))
+
+label_df <- data.frame(year = c(2018.3, 2018, 2018.4, 2018.8, 2018.2, 2018.7, 2018.3, 2018.6, 2018.4),
+                       label = c("Livelihoods & \nEconomies", "Biodiversity", "Habitat Services", "Tourism & Recreation", "Clean Waters", "Ocean Health Index", "Sense Of Place", "Resource Access \nOpportunities", "Food Provision"),
+                       score = c(99, 91, 89, 80.5, 85.5, 83.5, 82, 70, 64),
+                       goal_name_f = c("Livelihoods & Economies", "Biodiversity", "Habitat Services", "Tourism & Recreation", "Clean Waters", "Ocean Health Index", "Sense Of Place", "Resource Access Opportunities", "Food Provision"))
+```
+
+## Rug plot
+
+```{r, fig.height =6, fig.width = 8}
+##color palette --- where 85 is the break between yellows and blues
+ reds <-  grDevices::colorRampPalette(
+   c("#A50026", "#D73027", "#F46D43", "#FDAE61", "#FEE090"),
+   space="Lab")(85)
+ blues <-  grDevices::colorRampPalette(
+   c("#E0F3F8", "#ABD9E9", "#74ADD1", "#4575B4"))(15)
+ myPalette <-  c(reds, blues)
+ 
+
+rug_df <- goal_scores  %>%
+  select(goal_name, score, year, rgn_name) %>%
+  group_by(goal_name, rgn_name) %>%
+  mutate(tot = sum(score)) %>%
+  ungroup()
+
+rug_df$goal_name_f = factor(rug_df$goal_name, levels=c("Ocean Health Index", "Biodiversity", "Clean Waters", "Food Provision", "Habitat Services", "Livelihoods & Economies", "Resource Access Opportunities", "Sense Of Place", "Tourism & Recreation"))
+
+rug_df$rgn_name_f = factor(rug_df$rgn_name, levels = rev(c("Northeast", "Connecticut", "Maine", "Massachusetts-North", "Massachusetts-South", "New Hampshire", "New York",  "Rhode Island", "Georges Bank", "Gulf of Maine", "Mid-Atlantic Bight", "Offshore")))
+```
+
+
+### Binned rug plot
+
+```{r, fig.height = 8, fig.width = 10}
+mycolors <- colorRampPalette(brewer.pal(10, "Spectral"))(13)
+
+# Define category breaks
+breaks <- c(0, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 101)
+
+bin_rug_df <- rug_df %>% 
+      # create a new variable from count
+      mutate(scoreDiscr=cut(.$score,breaks = breaks, right = FALSE,
+                             labels=c("<40","45", "50","55","60","65","70","75","80","85","90","95","100"))) %>%
+      # change level order
+      mutate(scorefactor=factor(as.character(scoreDiscr),levels=rev(levels(scoreDiscr))))
+
+ggplot(bin_rug_df, aes(x = year, y = rgn_name_f, fill = scoreDiscr)) +
+      geom_tile(colour="white",size=0.25) +
+      theme_minimal() +
+      labs(x="",y="", fill = "Score") +
+      scale_fill_manual(values = mycolors, na.value = "grey90", breaks = levels(bin_rug_df$scoreDiscr),
+                           guide = guide_legend(reverse = TRUE), drop = FALSE) +
+  facet_wrap(~goal_name, labeller = labeller(goal_name = label_wrap_gen(width = 20)), nrow = 4)  +
+  theme(axis.text.y = element_text(face = c(rep('plain', 11), 'bold')),
+        axis.text.x = element_text(size = 8))
+
+ggsave(filename = "../figs/binned_rug_plot_scores_by_goal_and_subgoal.jpg")
+```
+
+Clean waters layers by region
+
+Some of these layers have values for all years while others do not. This is taken care of in the toolbox using the `scenario_years.csv` file in ne-scores but I need to fix it here for display which can be done using `fill()`
+```{r, fig.width=7, fig.height = 4}
+cw_layers     <- read_csv("https://raw.githubusercontent.com/OHI-Northeast/ne-prep/gh-pages/prep/cw/data/region_layer_scores.csv") %>%
+    filter(rgn_id > 4)
+
+cw_layers_gf     <- cw_layers %>%
+  group_by(rgn_id, rgn_name, layer) %>%
+  complete(year= 2005:2017) %>%
+  fill(score, .direction = "downup")
+
+ggplot() +
+  geom_line(data = cw_layers_gf, aes(x = year, y = score, color = layer), lty = 2) +
+  geom_line(data = cw_layers, aes(x = year, y = score, color = layer)) +
+  facet_wrap(~rgn_name) +
+  theme_minimal() +
+  labs(color = "Layer",
+       y = "Score",
+       x = "") +
+  scale_x_continuous(breaks = c(2005, 2009, 2013, 2017)) +
+  theme(axis.text.x = element_text(size = 7))
+
+ggsave("../figs/supp_cw_layers.jpg")
+```
+
+Food Provision scores by region
+
+```{r, fig.height = 4, fig.width = 7.5}
+fp <- goal_scores %>%
+  filter(goal %in% c("MAR", "FIS")) %>%
+  mutate(type = ifelse(goal == "FIS", "Fisheries", "Aquaculture")) %>%
+  select(score, year, rgn_name, type)
+  
+production_weights <- read_csv("https://raw.githubusercontent.com/OHI-Northeast/ne-scores/master/region/layers/fp_wildcaught_weight.csv") %>% 
+    select(region_id, year, Aquaculture = total_production, Fisheries = total_catch) %>%
+    left_join(rgn_data, by = c("region_id" = "rgn_id")) %>%
+  mutate(rgn_name = ifelse(region_id == 12, "Northeast", rgn_name)) %>%
+    select(-area_km2, -state, -state_name, -state_abv) %>%
+    gather(key = "type", value = "Pounds", -region_id, -year, -rgn_name) %>%
+    mutate(Pounds = round(as.numeric(Pounds), 0)) %>%
+  group_by(region_id, year, rgn_name) %>%
+  mutate(total_pounds = sum(Pounds, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(prop = Pounds/total_pounds) %>%
+  select( rgn_name, type, prop, year)
+
+combo <- fp %>% left_join(production_weights)
+
+ggplot(combo, aes(x = year, y = score, color = type)) +
+  geom_line(aes(size = prop), lineend = "round") +
+  facet_wrap(~rgn_name) +
+  theme_minimal() +
+  labs(x = "",
+       y = "Score",
+       color = "Sub-goal",
+       size = "Proportion") +
+  scale_x_continuous(breaks = c(2005, 2009, 2013, 2017)) +
+  theme(axis.text.x = element_text(size = 7)) +
+  ylim(0, 100)
+
+ggsave("../figs/supplement_fp_subgoal_scores_by_prop.jpeg")
+```
+
+
+

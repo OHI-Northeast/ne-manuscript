@@ -1,0 +1,382 @@
+---
+title: "Figures for manuscript"
+author: "Jamie Montgomery"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(tidyverse)
+library(sf)
+library(ggrepel)
+library(paletteer)
+library(gghighlight)
+library(RColorBrewer)
+library(broom)
+library(patchwork)
+library(kableExtra)
+library(stargazer)
+library(cowplot)
+
+# set the mazu data_edit share based on operating system
+dir_M             <- c('Windows' = '//mazu.nceas.ucsb.edu/ohi',
+                       'Darwin'  = '/Volumes/ohi',    ### connect (cmd-K) to smb://mazu/ohi
+                       'Linux'   = '/home/shares/ohi')[[ Sys.info()[['sysname']] ]]
+dir_prep <- '~/github/ne-prep'
+# shapefiles
+# state land boundaries
+ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'states', quiet = T)
+rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'ne_ohi_rgns', quiet = T) #need to use path.expand because readOGR does not read '~'
+rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp', quiet = T) #need to use path.expand because readOGR does not read '~'
+
+ne_rgn <- sf::read_sf(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'northeast_rgn', quiet = T) #whole region
+rgn_data   <- data.frame(rgns) %>% 
+  select(-geometry) %>% 
+  mutate(area_km2 = as.numeric(levels(area_km2))[area_km2],
+         rgn_name = as.character(rgn_name),
+         state = ifelse(str_detect(rgn_name, "Massachusetts"), "Massachusetts", rgn_name))
+
+scores <- read_csv("~/github/ne-scores/region/scores.csv") %>%
+  left_join(rgn_data, by = c("region_id" = "rgn_id")) %>%
+  select(-area_km2, -state, -state_abv, -state_name) %>%
+  mutate(goal_name = case_when(
+    goal == "BD" ~ "Biodiversity",
+    goal == "CW" ~ "Clean Waters",
+    goal == "ECO" ~ "LE: Economies",
+    goal == "FIS" ~ "FP: Wild-Caught Fisheries",
+    goal == "HAB" ~ "BD: Habitats",
+    goal == "HS" ~ "Habitat Services",
+    goal == "CP" ~ "HS: Coastal Protection",
+    goal == "CS" ~ "HS: Carbon Storage",
+    goal == "ICO" ~ "SOP: Iconic Species",
+    goal == "Index" ~ "Ocean Health Index",
+    goal == "LE" ~ "Livelihoods & Economies",
+    goal == "LIV" ~ "LE: Livelihoods",
+    goal == "LSP" ~ "SOP: Lasting Special Places",
+    goal == "MAR" ~ "FP: Aquaculture",
+    goal == "RAO" ~ "Resource Access Opportunities",
+    goal == "SP" ~ "Sense Of Place",
+    goal == "SPFIS" ~ "SOP: Fishing Engagement",
+    goal == "TR" ~ "Tourism & Recreation",
+    goal == "SPP" ~ "BD: Species",
+    goal == "FP" ~ "Food Provision"
+  ),
+  rgn_name = ifelse(region_id == 0, "Northeast", rgn_name),
+  year = as.numeric(year))
+```
+
+
+# Figure 1
+
+Region map
+
+```{r Figure 1 region map}
+
+east_coast <- st_union(ne_states) %>%
+  st_crop(rgns)
+
+#a lot of this crazy code I copied from this issue on ggrepel: https://github.com/slowkow/ggrepel/issues/89
+rgns_sf <- rgns %>%
+  mutate(
+    CENTROID = purrr::map(geometry, st_centroid),
+    COORDS = purrr::map(CENTROID, st_coordinates),
+    COORDS_X = purrr::map_dbl(COORDS, 1),
+    COORDS_Y = purrr::map_dbl(COORDS, 2)
+  ) %>%
+  as_tibble() %>%
+  st_as_sf()
+
+rgns_sf$nudge_x <- 0
+rgns_sf$nudge_y <- 0
+
+x_range <- abs(Reduce("-", range(rgns_sf$COORDS_X)))
+y_range <- abs(Reduce("-", range(rgns_sf$COORDS_Y)))
+
+ix <- rgns_sf$rgn_name %in% c("Maine", "New Hampshire", "Rhode Island", "Connecticut", "Massachusetts-North", "Massachusetts-South")
+rgns_sf$nudge_x[ix] <- -1 * 0.15 * x_range
+rgns_sf$nudge_y[ix] <- 1 * 0.1 * y_range
+
+ix <- rgns_sf$rgn_name %in% c(
+  "New York"
+)
+rgns_sf$nudge_x[ix] <- -1 * 0.2 * x_range
+rgns_sf$nudge_y[ix] <- -1 * 0.3 * y_range
+
+
+ggplot() +
+  geom_sf(data = east_coast, fill = "gray80", color = "gray80") +
+  geom_sf(data = rgns, fill = "aliceblue", color = "lightblue3") +
+  theme(panel.grid.major = element_blank(),
+        panel.background = element_rect(fill = "aliceblue"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())  +
+  geom_text_repel(data = rgns_sf,
+    mapping = aes(
+      x = COORDS_X,
+      y = COORDS_Y,
+      label = rgn_name
+    ),
+    nudge_x = rgns_sf$nudge_x,
+    nudge_y = rgns_sf$nudge_y,
+    size = 2.5,
+    min.segment.length = 0.5,
+    point.padding = NA,
+    segment.color = "grey50"
+  ) +
+  coord_sf(crs = st_crs(rgns_sf), datum = NA) +
+    theme(panel.grid.major = element_blank(),
+        panel.background = element_rect(fill = "aliceblue"),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank()) 
+
+ggsave(filename = "../figs/figure_1.jpg")
+```
+
+
+# Figure 3
+
+## Northeast scores over time - all goals
+
+```{r, fig.width = 6, fig.height = 4}
+goal_scores <- scores %>%
+  filter(dimension == "score")  %>%
+  mutate(weight = ifelse(region_id == 0, 1, 0),
+  rgn_dropped = ifelse(region_id == 0, "Northeast", "All other regions"))
+
+goal_scores$goal_name_f = factor(goal_scores$goal_name, levels=c("Ocean Health Index", "Biodiversity", "Clean Waters", "Food Provision", "Habitat Services", "Livelihoods & Economies", "Resource Access Opportunities", "Sense Of Place", "Tourism & Recreation"))
+
+label_df <- data.frame(year = c(2018.3, 2018, 2018.4, 2018.8, 2018.2, 2018.7, 2018.3, 2018.6, 2018.4),
+                       label = c("Livelihoods & \nEconomies", "Biodiversity", "Habitat Services", "Tourism & Recreation", "Clean Waters", "Ocean Health Index", "Sense Of Place", "Resource Access \nOpportunities", "Food Provision"),
+                       score = c(99, 91, 89, 80.5, 85.5, 83.5, 82, 70, 64),
+                       goal_name_f = c("Livelihoods & Economies", "Biodiversity", "Habitat Services", "Tourism & Recreation", "Clean Waters", "Ocean Health Index", "Sense Of Place", "Resource Access Opportunities", "Food Provision"))
+
+
+line_goals <- ggplot(goal_scores %>% filter(!str_detect(goal_name, ":"),
+                              region_id == 0), aes(x = year, y = score, color = goal_name_f)) +
+  geom_line()  +
+  theme_minimal() +
+  labs(x = "",
+       y = "Score",
+       title = "Goals")  +
+  ylim(50, 101) +
+  scale_color_paletteer_d("rcartocolor::Safe") + #colorblind 12 color palette
+  theme(legend.position = "blank",
+        legend.text = element_text(size = 11),
+        axis.text.x = element_text(size = 8, color = c(rep("black", 7), "white")),
+        strip.text = element_text(size = 10)) +
+    expand_limits(x= c(2005, 2020)) +
+  scale_x_continuous(breaks = seq(2005, 2022, by = 2)) +
+  geom_rect(fill = "white", xmin = 2017, xmax = 2022, ymin = 0, ymax = 105, color = NA) +
+  geom_text(data = label_df, aes(x = year, y = score, label = label, color = goal_name_f),
+            size = 3, fontface = 'bold')
+
+#ggsave(filename = "../figs/northeast_goal_scores_over_time.jpg")
+
+```
+
+```{r, fig.width = 12, fig.height = 5}
+
+label_df <- data.frame(year = c(2018.9, 2018, 2018, 2018.1, 2017.8, 2018.4, 2018.6, 2017.8, 2018.4, 2018, 2018.1),
+                       label = c("Lasting Special Places", "Livelihoods", "Economies", "Aquaculture", "Species", "Carbon Storage", "Coastal Protection", "Habitats", "Iconic Species", "Fishing \nEngagement", "Wild-Caught \nFisheries"),
+                       score = c(101.6, 100, 98.3, 96.8, 93.8, 89, 87.5, 85.5, 75, 70, 59),
+                       goal_name = c("Sense of Place", "Livelihoods & Economies", "Livelihoods & Economies", "Food Provision", "Biodiversity", "Habitat Services", "Habitat Services", "Biodiversity", "Sense of Place", "Sense of Place", "Food Provision"))
+
+subgoals <- goal_scores %>% 
+  filter(str_detect(goal_name, ":")) %>% 
+  mutate(g_name = case_when(
+          goal == "SPFIS" ~ "Sense of Place",
+          goal == "CP"  ~ "Habitat Services",
+          goal == "CS"  ~ "Habitat Services",
+          goal == "ECO" ~ "Livelihoods & Economies",
+          goal == "LIV" ~ "Livelihoods & Economies",
+          goal == "LSP" ~ "Sense of Place",
+          goal == "ICO" ~ "Sense of Place",
+          goal == "MAR" ~ "Food Provision",
+          goal == "HAB" ~ "Biodiversity",
+          goal == "FIS" ~ "Food Provision",
+          goal == "SPP" ~ "Biodiversity"))
+
+line_subgoals <- ggplot(subgoals %>% filter(region_id == 0), aes(x = year, y = score, group = goal_name, color = g_name)) +
+  geom_line()  +
+  theme_minimal() +
+  labs(x = "",
+       y = "",
+       title = "Sub-goals")  +
+  scale_color_manual(values = c("#CC6677FF", "#117733FF","#332288FF",  "#AA4499FF",  "#999933FF"), 
+                      labels = c("Livelihoods & Economies", "Food Provision", "Biodiversity", "Habitat Services", "Sense of Place")) +
+  theme(legend.position = "blank",
+        legend.text = element_text(size = 11),
+        axis.text.x = element_text(size = 8, color = c(rep("black", 7), "white")),
+        strip.text = element_text(size = 10)) +
+    expand_limits(x= c(2005, 2020)) +
+  scale_x_continuous(breaks = seq(2005, 2022, by = 2)) +
+  geom_rect(fill = "white", xmin = 2017, xmax = 2022, ymin = 0, ymax = 105, color = NA) +
+  geom_text(data = label_df, aes(x = year, y = score, label = label, color = goal_name),
+            size = 3, fontface = 'bold')
+
+fig3 <- plot_grid(line_goals, line_subgoals)
+fig3
+ggsave(fig3, filename = "../figs/figure_3.jpg")
+```
+
+# Table 2
+
+## Linear regression
+
+```{r}
+by_region <- scores %>%
+  filter(dimension == "score",
+         !is.na(score)) %>%
+  group_by(region_id, goal_name)
+
+#tidy gives us the estimate and pvalue
+lm_data_t <- do(by_region, 
+  tidy( 
+       lm(score ~ year, data = .)))
+
+#glance gives us the rsquared
+lm_data_g <- do(by_region, 
+  glance( 
+       lm(score ~ year, data = .))) %>%
+  select(region_id, goal_name, r.squared)
+
+```
+
+```{r}
+
+all <- lm_data_t %>%
+  filter(term == "year") %>%
+  select(-std.error, -statistic) %>%
+  arrange(p.value)  %>%
+  left_join(lm_data_g) %>%
+  mutate(estimate = round(estimate, 2),
+         p.value = round(p.value, 4),
+         r.squared = round(r.squared,3))
+
+all
+
+ne <- lm_data_t %>%
+  filter(region_id == 0,
+         term == "year") %>%
+  select(-std.error, -statistic) %>%
+  arrange(p.value) %>%
+  left_join(lm_data_g) %>%
+  mutate(slope = round(estimate, 2),
+         p.value = round(p.value, 4),
+         r.squared = round(r.squared,3)) %>%
+  ungroup() %>%
+  mutate(`Goal/Sub-goal` = gsub(".*:","",goal_name)) %>%
+  select(`Goal/Sub-goal`, 
+         Slope = slope, 
+         Rsquared = r.squared,
+         `p value` = p.value) 
+
+ne
+
+kable(ne) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = F,  font_size = 10) %>%
+  save_kable("../figs/linear_regression_table.jpg", zoom = 2)
+```
+
+### Standard deviation
+```{r}
+scores_sd <- scores %>%
+  filter(dimension == "score") %>%
+  group_by(goal_name, rgn_name) %>%
+  summarize(stand_dev = sd(score))
+
+scores_sd
+```
+
+
+## Figure 4
+
+### By region
+```{r, fig.height =6, fig.width = 8}
+##color palette --- where 85 is the break between yellows and blues
+ reds <-  grDevices::colorRampPalette(
+   c("#A50026", "#D73027", "#F46D43", "#FDAE61", "#FEE090"),
+   space="Lab")(85)
+ blues <-  grDevices::colorRampPalette(
+   c("#E0F3F8", "#ABD9E9", "#74ADD1", "#4575B4"))(15)
+ myPalette <-  c(reds, blues)
+ 
+
+rug_df <- goal_scores  %>%
+  select(goal_name, score, year, rgn_name) %>%
+  group_by(goal_name, rgn_name) %>%
+  mutate(tot = sum(score)) %>%
+  ungroup()
+
+rug_df$goal_name_f = factor(rug_df$goal_name, levels=c("Ocean Health Index", "Biodiversity", "Clean Waters", "Food Provision", "Habitat Services", "Livelihoods & Economies", "Resource Access Opportunities", "Sense Of Place", "Tourism & Recreation"))
+
+rug_df$rgn_name_f = factor(rug_df$rgn_name, levels = rev(c("Northeast", "Connecticut", "Maine", "Massachusetts-North", "Massachusetts-South", "New Hampshire", "New York",  "Rhode Island", "Georges Bank", "Gulf of Maine", "Mid-Atlantic Bight", "Offshore")))
+```
+
+
+```{r, fig.height = 6, fig.width = 8}
+mycolors <- colorRampPalette(brewer.pal(10, "Spectral"))(13)
+
+# Define category breaks
+breaks <- c(0, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 101)
+
+bin_rug_df <- rug_df %>% 
+      # create a new variable from count
+      mutate(scoreDiscr=cut(.$score,breaks = breaks, right = FALSE,
+                             labels=c("<40","45", "50","55","60","65","70","75","80","85","90","95","100"))) %>%
+      # change level order
+      mutate(scorefactor=factor(as.character(scoreDiscr),levels=rev(levels(scoreDiscr))))
+
+bin_rug_plot <- ggplot(bin_rug_df %>% filter(!str_detect(goal_name, ": ")), 
+                       aes(x = year, y = rgn_name_f, fill = scoreDiscr)) +
+      geom_tile(colour="white",size=0.25) +
+      theme_minimal() +
+      labs(x="",y="", fill = "Score") +
+      scale_fill_manual(values = mycolors, na.value = "grey90", breaks = levels(bin_rug_df$scoreDiscr),
+                           guide = guide_legend(reverse = TRUE), drop = FALSE)  +
+  facet_wrap(~goal_name_f, labeller = labeller(goal_name = label_wrap_gen(width = 25)))  +
+  theme(axis.text.y = element_text(face = c(rep('plain', 11), 'bold')))
+
+bin_rug_plot
+
+ggsave(bin_rug_plot, filename = "../figs/figure_4.jpg")
+```
+
+# Figure 5
+
+```{r, fig.width = 7, fig.height = 6}
+scores_change_17_05 <- scores %>%
+  filter(year %in% c(2005, 2017),
+         dimension == "score") %>%
+  pivot_wider(names_from = year, values_from = score) %>%
+  mutate(change = `2017` - `2005`)
+
+lolli_df <- scores_change_17_05 %>% 
+  filter(!str_detect(goal_name, ":"),
+         dimension == "score") %>%
+  left_join(scores_sd)
+
+lolli_df$goal_name_f = factor(lolli_df$goal_name, levels=c("Ocean Health Index", "Biodiversity", "Clean Waters", "Food Provision", "Habitat Services", "Livelihoods & Economies", "Resource Access Opportunities", "Sense Of Place", "Tourism & Recreation"))
+
+lolli_df$rgn_name_f = factor(lolli_df$rgn_name, levels = rev(c("Northeast", "Connecticut", "Maine", "Massachusetts-North", "Massachusetts-South", "New Hampshire", "New York",  "Rhode Island", "Georges Bank", "Gulf of Maine", "Mid-Atlantic Bight", "Offshore")))
+
+
+ggplot(lolli_df) +
+  geom_segment(aes(x=rgn_name_f, xend=rgn_name_f, y=`2005`, yend=`2017`, color = change>0)) +
+  geom_point(aes(x=rgn_name_f, y=`2005`, color="#4B8178"),  size=2, alpha = 0.7 ) +
+  geom_point(aes(x=rgn_name_f, y=`2017`,  color="#92CE7F"), size=2, alpha = 0.7 ) +
+  coord_flip() +
+  labs(x = "",
+       y = "Score",
+       color = "") +
+  facet_wrap(~goal_name_f) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8, face = c(rep('plain', 11), 'bold')), 
+        legend.position = "bottom") +
+  scale_y_continuous(breaks = c(50, 75, 100), labels = c("50", "75", "100")) +
+  scale_color_manual(values = c("gray50", "black",  "red",  "blue"), 
+                     labels = c( "2005", "2017",   "Decrease", "Increase"))
+
+ggsave(filename = "../figs/figure_5.jpg")
+```

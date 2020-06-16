@@ -1,0 +1,324 @@
+---
+title: "Pressures and Resilience Figures"
+author: "Jamie Montgomery"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(sf)
+library(ggrepel)
+library(paletteer)
+library(gghighlight)
+library(RColorBrewer)
+library(patchwork)
+
+# set the mazu data_edit share based on operating system
+dir_M             <- c('Windows' = '//mazu.nceas.ucsb.edu/ohi',
+                       'Darwin'  = '/Volumes/ohi',    ### connect (cmd-K) to smb://mazu/ohi
+                       'Linux'   = '/home/shares/ohi')[[ Sys.info()[['sysname']] ]]
+dir_prep <- '~/github/ne-prep'
+# shapefiles
+# state land boundaries
+ne_states  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'states', quiet = T)
+rgns       <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'ne_ohi_rgns', quiet = T) #need to use path.expand because readOGR does not read '~'
+rgns_simp  <- sf::st_read(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'),layer = 'ne_ohi_rgns_simp', quiet = T) #need to use path.expand because readOGR does not read '~'
+
+ne_rgn <- sf::read_sf(dsn = paste0(path.expand(dir_prep),'/spatial/shapefiles'), layer = 'northeast_rgn', quiet = T) #whole region
+rgn_data   <- data.frame(rgns) %>% 
+  select(-geometry) %>% 
+  mutate(area_km2 = as.numeric(levels(area_km2))[area_km2],
+         rgn_name = as.character(rgn_name),
+         state = ifelse(str_detect(rgn_name, "Massachusetts"), "Massachusetts", rgn_name))
+
+scores <- read_csv("~/github/ne-scores/region/scores.csv") %>%
+  left_join(rgn_data, by = c("region_id" = "rgn_id")) %>%
+  select(-area_km2, -state, -state_abv, -state_name) %>%
+  mutate(goal_name = case_when(
+    goal == "BD" ~ "Biodiversity",
+    goal == "CW" ~ "Clean Waters",
+    goal == "ECO" ~ "LE: Economies",
+    goal == "FIS" ~ "FP: Wild-Caught Fisheries",
+    goal == "HAB" ~ "BD: Habitats",
+    goal == "HS" ~ "Habitat Services",
+    goal == "CP" ~ "HS: Coastal Protection",
+    goal == "CS" ~ "HS: Carbon Storage",
+    goal == "ICO" ~ "SOP: Iconic Species",
+    goal == "Index" ~ "Ocean Health Index",
+    goal == "LE" ~ "Livelihoods & Economies",
+    goal == "LIV" ~ "LE: Livelihoods",
+    goal == "LSP" ~ "SOP: Lasting Special Places",
+    goal == "MAR" ~ "FP: Aquaculture",
+    goal == "RAO" ~ "Resource Access Opportunities",
+    goal == "SP" ~ "Sense Of Place",
+    goal == "SPFIS" ~ "SOP: Fishing Engagement",
+    goal == "TR" ~ "Tourism & Recreation",
+    goal == "SPP" ~ "BD: Species",
+    goal == "FP" ~ "Food Provision"
+  ),
+  rgn_name = ifelse(region_id == 0, "Northeast", rgn_name),
+  year = as.numeric(year))
+```
+
+
+# Pressures
+
+## Pressures by goal and region
+
+Pressures are going up across all regions/goals.
+
+```{r, fig.height = 7, fig.width = 9}
+pressures <- scores %>%
+  filter(dimension == "pressures",
+         !is.na(score)) 
+
+ggplot(pressures, aes(x = year, y = score, color = rgn_name)) +
+  geom_line() +
+  facet_wrap(~goal_name) +
+  theme_minimal()
+
+```
+
+
+Look at pressures individually
+
+```{r}
+#list all pressures from ne-scores/region/layers
+
+pressure_list <- list.files("~/github/ne-scores/region/layers", full.names = T)[
+  str_detect(list.files("~/github/ne-scores/region/layers", full.names = T), "prs_|cc_|hd_|sp_a|sp_g")]
+
+#read each one in and combine into a dataframe
+out <- data.frame()
+for(i in 1:length(pressure_list)){
+  print(i)
+  name <- substr(pressure_list[i],49, nchar(pressure_list[i])-4)
+  
+  #issue with pathogens
+  if(name == "prs_pathogens"){
+    df <- read_csv(pressure_list[i]) %>%
+    mutate(pressure = name) %>%
+    select(year, rgn_id, score = perc_closed, pressure)
+    }
+  
+  if(name == "prs_hardening"){
+    df <- read_csv(pressure_list[i]) %>%
+    mutate(pressure = name) %>%
+    select(year, rgn_id, score = percent_hard, pressure) 
+  }
+  
+  if(!name %in% c("prs_pathogens", "prs_hardening")){
+  df <- read_csv(pressure_list[i]) %>%
+    mutate(pressure = name) %>%
+    select(year, rgn_id, contains("rgn_name"), contains("score"), pressure)
+  }
+  
+  out <- bind_rows(df, out)
+}
+
+#clean up
+pressure_df <- out %>%
+  mutate(score = ifelse(is.na(pressure_score), score, pressure_score)) %>%
+  left_join(rgn_data, by = "rgn_id") %>%
+  select(rgn_id, rgn_name = rgn_name.y, score, pressure, year) %>%
+  mutate(rgn_name = ifelse(rgn_id == 12, "Northeast", rgn_name),
+         pressure_full = case_when(
+           pressure == "cc_acid" ~ "Ocean acidification",
+           pressure == "cc_slr" ~ "Sea level rise",
+           pressure == "cc_sst" ~ "Sea surface temperature",
+           pressure == "prs_wqi" ~ "Water quality",
+           pressure == "prs_sqi" ~ "Sediment quality",
+           pressure == "prs_trash" ~ "Coastal trash",
+           pressure == "prs_pathogens" ~ "Pathogens",
+           pressure == "hd_intertidal" ~ "Intertidal habitat destruction",
+           pressure == "hd_subtidal" ~ "Subtidal habitat destruction",
+           pressure == "prs_fishing" ~ "Fishing",
+           pressure == "prs_social" ~ "Social",
+           pressure == "prs_aqua_hab" ~ "Habitat destruction from aquaculture",
+           pressure == "prs_hardening" ~ "Coastal hardening",
+           pressure == "prs_disease" ~ "Disease from aquaculture",
+           pressure == "sp_alien" ~ "Invasive species",
+           pressure == "sp_genetic" ~ "Genetic escapes")) %>%
+  filter(year > 2004)
+```
+
+Some of these layers have values for all years while others do not. This is taken care of in the toolbox using the `scenario_years.csv` file in ne-scores but I need to fix it here which can be done using `fill()`
+
+```{r}
+fill_prs_df <- pressure_df %>%
+  group_by(rgn_id, rgn_name, pressure, pressure_full) %>%
+  complete(year = 2005:2017) %>%
+  ungroup() %>%
+  group_by(pressure, rgn_id, rgn_name, pressure_full) %>%
+  fill(score, .direction = "downup")
+```
+
+
+
+```{r, fig.width = 10, fig.height = 4.5}
+ggplot() +
+  geom_line(data = fill_prs_df, aes(x = year, y = score, color = pressure_full), lty=2) +
+  geom_line(data = pressure_df, aes(x = year, y = score, color = pressure_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  labs(x = "",
+       y = "Score",
+       color = "Pressure")
+```
+Split into groups
+
+```{r,  fig.width = 8, fig.height = 4.5}
+#climate
+climate <- ggplot() +
+  geom_line(data = filter(fill_prs_df, str_detect(pressure, "cc_")), aes(x = year, y = score, color = pressure_full), lty=2) +
+  geom_line(data = filter(pressure_df, str_detect(pressure, "cc_")), aes(x = year, y = score, color = pressure_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  labs(x = "",
+       y = "Score",
+       title = "Climate pressures",
+       color = "") +
+  theme(axis.text.x = element_text(size = 7),
+        legend.position = "bottom")
+
+climate
+
+ggsave("../figs/supp_fig_climate_pressures_over_time.jpg")
+```
+Pollution
+```{r,  fig.width = 6, fig.height = 4.5}
+#pollution
+pollution <- ggplot() +
+  geom_line(data = filter(fill_prs_df, str_detect(pressure, "sqi|wqi|trash|path") & !is.na(score)), aes(x = year, y = score, color = pressure_full), lty=2) +
+  geom_line(data = filter(pressure_df, str_detect(pressure, "sqi|wqi|trash|path") & !is.na(score)), aes(x = year, y = score, color = pressure_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  ylim(0,1) +
+  labs(x = "",
+       y = "Score",
+       title = "Pollution pressures",
+       color = "") +
+  theme(axis.text.x = element_text(size = 7),
+        legend.position = "bottom")
+
+pollution
+
+ggsave("../figs/supp_fig_pollution_pressures_over_time.jpg")
+```
+
+Habitat destruction
+
+```{r,  fig.width = 8, fig.height = 4.5}
+
+hab_dest <- ggplot() +
+  geom_line(data = filter(fill_prs_df, str_detect(pressure, "hd|aqua|hard") & !is.na(score)), aes(x = year, y = score, color = pressure_full), lty=2) +
+  geom_line(data = filter(pressure_df, str_detect(pressure, "hd|aqua|hard") & !is.na(score)), aes(x = year, y = score, color = pressure_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  ylim(0,1) +
+  labs(x = "",
+       y = "Score",
+       title = "Habitat destruction pressures",
+       color = "") +
+  theme(axis.text.x = element_text(size = 7),
+        legend.position = "bottom")
+
+hab_dest
+
+ggsave("../figs/supp_fig_hab_dest_pressures_over_time.jpg")
+```
+
+Others
+
+```{r,  fig.width = 8, fig.height = 4.5}
+others <- ggplot() +
+  geom_line(data = filter(fill_prs_df, str_detect(pressure, "fish|social|dis|sp_") & !is.na(score)), aes(x = year, y = score, color = pressure_full), lty=2) +
+  geom_line(data = filter(pressure_df, str_detect(pressure, "fish|social|dis|sp_") & !is.na(score)), aes(x = year, y = score, color = pressure_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  ylim(0,1) +
+  labs(x = "",
+       y = "Score",
+       title = "Other pressures",
+       color = "") +
+  theme(axis.text.x = element_text(size = 7),
+        legend.position = "bottom")
+
+others
+ggsave("../figs/supp_fig_other_pressures_over_time.jpg")
+```
+
+# Resilience
+
+```{r}
+
+#list all pressures from ne-scores/region/layers
+
+res_list <- list.files("~/github/ne-scores/region/layers", full.names = T)[
+  str_detect(list.files("~/github/ne-scores/region/layers", full.names = T), "/res_")]
+
+#read each one in and combine into a dataframe
+out <- data.frame()
+for(i in 1:length(res_list)){
+  print(i)
+  name <- substr(res_list[i],49, nchar(res_list[i])-4)
+  
+  df <- read_csv(res_list[i]) %>%
+    mutate(resilience = name) %>%
+    select(year, rgn_id, contains("rgn_name"), contains("score"), resilience)
+  
+  out <- bind_rows(df, out)
+}
+
+#clean up
+res_df <- out %>%
+  mutate(score = ifelse(is.na(resilience_score), score, resilience_score)) %>%
+  left_join(rgn_data, by = "rgn_id") %>%
+  select(rgn_id, rgn_name = rgn_name.y, score, resilience, year) %>%
+  mutate(rgn_name = ifelse(rgn_id == 12, "Northeast", rgn_name),
+         res_full = case_when(
+           resilience == "res_alien" ~ "Alien species",
+           resilience ==  "res_climate_change" ~ "Climate change",
+           resilience ==  "res_eco_integrity" ~ "Ecological integrity",
+           resilience ==  "res_fishing" ~ "Fishing",
+           resilience ==  "res_hab_destruction" ~ "Habitat destruction",
+           resilience ==  "res_social" ~ "Social",
+           resilience ==  "res_water_pollution" ~ "Water pollution")) %>%
+  filter(year > 2004)
+```
+
+Some of these layers have values for all years while others do not. This is taken care of in the toolbox using the `scenario_years.csv` file in ne-scores but I need to fix it here which can be done using `fill()`
+
+```{r}
+fill_res_df <- res_df %>%
+  group_by(rgn_id, rgn_name, resilience, res_full) %>%
+  complete(year = 2005:2017) %>%
+  ungroup() %>%
+  group_by(resilience, rgn_id, rgn_name, res_full) %>%
+  fill(score, .direction = "downup")
+```
+
+```{r, fig.width = 8, fig.height = 4.5}
+ggplot() +
+  geom_line(data = fill_res_df, aes(x = year, y = score, color = res_full), lty=2) +
+  geom_line(data = res_df, aes(x = year, y = score, color = res_full)) +
+  theme_minimal() +
+  facet_wrap(~rgn_name) +
+  scale_x_continuous(breaks=seq(2005, 2017, 3)) +
+  labs(x = "",
+       y = "Score",
+       color = "") +
+  ylim(0,1)+
+  theme(axis.text.x = element_text(size = 7),
+        legend.position = "bottom")
+
+ggsave("../figs/resilience_scores_by_region.jpg")
+```
